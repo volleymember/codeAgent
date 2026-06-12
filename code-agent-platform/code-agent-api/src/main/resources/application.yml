@@ -1,0 +1,131 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: code-agent-platform
+  datasource:
+    url: jdbc:mysql://localhost:3306/code_agent?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: root
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 8
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password:
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+
+llm:
+  provider: deepseek
+  base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+  api-key: ${DEEPSEEK_API_KEY:}
+  default-model: ${DEEPSEEK_MODEL:deepseek-v4-pro}
+  max-rounds: 3
+  max-llm-calls-per-task: 8
+  max-input-tokens: 16000
+  max-output-tokens: 4000
+  max-evidence-tokens: ${LLM_MAX_EVIDENCE_TOKENS:5000}
+  token-safety-margin: ${LLM_TOKEN_SAFETY_MARGIN:512}
+  chars-per-token: ${LLM_CHARS_PER_TOKEN:4}
+  fail-on-input-overflow: ${LLM_FAIL_ON_INPUT_OVERFLOW:false}
+
+mcp:
+  sandbox:
+    max-summary-tokens: ${MCP_SANDBOX_MAX_SUMMARY_TOKENS:900}
+    max-evidence-tokens: ${MCP_SANDBOX_MAX_EVIDENCE_TOKENS:260}
+    max-key-evidence: ${MCP_SANDBOX_MAX_KEY_EVIDENCE:24}
+    max-json-fields: ${MCP_SANDBOX_MAX_JSON_FIELDS:30}
+    chars-per-token: ${MCP_SANDBOX_CHARS_PER_TOKEN:4}
+
+embedding:
+  provider: dashscope
+  base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+  api-key: ${DASHSCOPE_API_KEY:}
+  model: ${DASHSCOPE_EMBEDDING_MODEL:text-embedding-v4}
+  dimensions: ${DASHSCOPE_EMBEDDING_DIMENSIONS:1024}
+  timeout-millis: ${EMBEDDING_TIMEOUT_MILLIS:10000}
+  max-attempts: ${EMBEDDING_MAX_ATTEMPTS:3}
+  retry-backoff-millis: ${EMBEDDING_RETRY_BACKOFF_MILLIS:300}
+  circuit-failure-threshold: ${EMBEDDING_CIRCUIT_FAILURE_THRESHOLD:5}
+  circuit-open-millis: ${EMBEDDING_CIRCUIT_OPEN_MILLIS:30000}
+
+milvus:
+  host: ${MILVUS_HOST:localhost}
+  port: ${MILVUS_PORT:19530}
+  collection: code_agent_chunks
+  uri: ${MILVUS_URI:}
+  token: ${MILVUS_TOKEN:}
+  connect-timeout-ms: ${MILVUS_CONNECT_TIMEOUT_MS:10000}
+  rpc-deadline-ms: ${MILVUS_RPC_DEADLINE_MS:20000}
+
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9100}
+  access-key: ${MINIO_ACCESS_KEY:minioadmin}
+  secret-key: ${MINIO_SECRET_KEY:minioadmin}
+  bucket: ${MINIO_BUCKET:code-agent}
+  max-evidence-object-bytes: ${MINIO_MAX_EVIDENCE_OBJECT_BYTES:104857600}
+  retry-attempts: ${MINIO_RETRY_ATTEMPTS:3}
+  retry-backoff-millis: ${MINIO_RETRY_BACKOFF_MILLIS:300}
+  connect-timeout-millis: ${MINIO_CONNECT_TIMEOUT_MILLIS:10000}
+  read-timeout-millis: ${MINIO_READ_TIMEOUT_MILLIS:30000}
+  write-timeout-millis: ${MINIO_WRITE_TIMEOUT_MILLIS:30000}
+
+integrations:
+  gitlab:
+    base-url: ${GITLAB_BASE_URL:https://gitlab.com}
+    token: ${GITLAB_TOKEN:}
+  jenkins:
+    base-url: ${JENKINS_BASE_URL:http://localhost:8081}
+    username: ${JENKINS_USERNAME:admin}
+    token: ${JENKINS_TOKEN:}
+  sonarqube:
+    base-url: ${SONARQUBE_BASE_URL:http://localhost:9002}
+    token: ${SONARQUBE_TOKEN:}
+
+rag:
+  chunk-size: 800
+  chunk-overlap: 100
+  vector-top-k: 20
+  bm25-top-k: 20
+  final-evidence-limit: 8
+
+agent:
+  max-rounds: 3
+  max-tool-calls-per-task: 30
+  min-confidence: 0.75
+  max-parallel-agents: ${AGENT_MAX_PARALLEL_AGENTS:6}
+  default-subtask-timeout-ms: ${AGENT_DEFAULT_SUBTASK_TIMEOUT_MS:30000}
+  parallel-task-timeout-ms: ${AGENT_PARALLEL_TASK_TIMEOUT_MS:90000}
+  max-agent-retries: ${AGENT_MAX_RETRIES:2}
+  agent-retry-backoff-ms: ${AGENT_RETRY_BACKOFF_MS:300}
+  queue-poll-timeout-ms: ${AGENT_QUEUE_POLL_TIMEOUT_MS:100}
+  enable-parallel-code-search: ${AGENT_ENABLE_PARALLEL_CODE_SEARCH:true}
+  enable-parallel-document-retrieval: ${AGENT_ENABLE_PARALLEL_DOCUMENT_RETRIEVAL:true}
+  parallel-code-search-top-k: ${AGENT_PARALLEL_CODE_SEARCH_TOP_K:6}
+  parallel-document-top-k: ${AGENT_PARALLEL_DOCUMENT_TOP_K:6}
+
+memory:
+  global-project-key: ${MEMORY_GLOBAL_PROJECT_KEY:GLOBAL}
+  max-core-rules: ${MEMORY_MAX_CORE_RULES:20}
+  max-episode-recall: ${MEMORY_MAX_EPISODE_RECALL:6}
+  min-recall-score: ${MEMORY_MIN_RECALL_SCORE:0.18}
+  working-ttl-hours: ${MEMORY_WORKING_TTL_HOURS:12}
+  max-agent-notes: ${MEMORY_MAX_AGENT_NOTES:80}
+  max-context-tokens: ${MEMORY_MAX_CONTEXT_TOKENS:1800}
+  max-core-rule-tokens: ${MEMORY_MAX_CORE_RULE_TOKENS:120}
+  max-episode-tokens: ${MEMORY_MAX_EPISODE_TOKENS:240}
+  max-agent-note-tokens: ${MEMORY_MAX_AGENT_NOTE_TOKENS:80}
+  chars-per-token: ${MEMORY_CHARS_PER_TOKEN:4}

@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Component
 public class PlannerAgent {
+
     private final McpRouter mcpRouter;
 
     /**

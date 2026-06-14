@@ -1,6 +1,7 @@
 package com.codeagent.core.react;
 
 import com.codeagent.common.domain.EvidenceItem;
+import com.codeagent.core.agent.ToolPlan;
 import com.codeagent.core.config.AgentProperties;
 import com.codeagent.core.dto.CreateAgentTaskCommand;
 import com.codeagent.core.intent.dto.IntentLeafView;
@@ -33,6 +34,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.mockito.ArgumentCaptor;
 
 class MCPReActAgentTest {
     @Test
@@ -121,6 +123,40 @@ class MCPReActAgentTest {
         assertThat(reflectionPrompt).doesNotContain("abc123");
     }
 
+    @Test
+    void plansJenkinsDiscoveryWhenCiFailureHasNoBuildNumber() {
+        StubLlm llm = new StubLlm(emptyPlan(), reflection(true));
+        ParallelAgentExecutionService execution = mock(ParallelAgentExecutionService.class);
+        when(execution.collectEvidence(eq("TASK-1"), eq("SESSION-1"), any(), any()))
+                .thenReturn(reportWithSummary("jenkins.find_recent_failed_builds", "failed build"));
+        MCPReActAgent agent = agent(llm, execution, tools("jenkins.find_recent_failed_builds"));
+
+        agent.execute(context(Map.of(), List.of("buildNumber")));
+
+        ArgumentCaptor<List<ToolPlan>> captor = ArgumentCaptor.forClass(List.class);
+        verify(execution).collectEvidence(eq("TASK-1"), eq("SESSION-1"), any(), captor.capture());
+        assertThat(captor.getValue()).extracting(ToolPlan::toolName)
+                .containsExactly("jenkins.find_recent_failed_builds");
+    }
+
+    @Test
+    void plansGitLabMergeRequestDiscoveryAfterCommitShaIsFound() {
+        StubLlm llm = new StubLlm(emptyPlan(), reflection(false), emptyPlan(), reflection(true));
+        ParallelAgentExecutionService execution = mock(ParallelAgentExecutionService.class);
+        when(execution.collectEvidence(eq("TASK-1"), eq("SESSION-1"), any(), any()))
+                .thenReturn(reportWithMetadata("jenkins.find_recent_failed_builds", Map.of("commitSha", "abcdef123456", "buildNumber", "42")),
+                        reportWithMetadata("gitlab.find_merge_request_by_commit", Map.of("mrIid", "8", "commitSha", "abcdef123456")));
+        MCPReActAgent agent = agent(llm, execution,
+                tools("jenkins.find_recent_failed_builds", "gitlab.find_merge_request_by_commit"));
+
+        agent.execute(context(Map.of(), List.of("buildNumber", "commitSha", "mrIid")));
+
+        ArgumentCaptor<List<ToolPlan>> captor = ArgumentCaptor.forClass(List.class);
+        verify(execution, org.mockito.Mockito.times(2)).collectEvidence(eq("TASK-1"), eq("SESSION-1"), any(), captor.capture());
+        assertThat(captor.getAllValues().get(1)).extracting(ToolPlan::toolName)
+                .contains("gitlab.find_merge_request_by_commit");
+    }
+
     private MCPReActAgent agent(StubLlm llm, ParallelAgentExecutionService execution, List<ToolDefinition> tools) {
         return agent(llm, execution, tools, new AgentProperties());
     }
@@ -135,6 +171,7 @@ class MCPReActAgentTest {
                 new ToolCallGuardrail(new TimeRangeResolver(properties)),
                 new ToolScoreRanker(properties),
                 new ToolOutputSandbox(),
+                new EvidenceMatrixPlanner(),
                 properties);
     }
 
@@ -142,7 +179,8 @@ class MCPReActAgentTest {
         CreateAgentTaskCommand command = new CreateAgentTaskCommand("CI_FAILURE_ANALYSIS", "payment",
                 null, "https://jenkins.example.com/job/payment/1", null, null, null, null);
         IntentLeafView leaf = new IntentLeafView("default", 1, "CI_FAILURE_ANALYSIS", "ROOT/CI",
-                "CI", "CI", List.of(), List.of(), 24, List.of("jenkins"), List.of("jenkins_log"));
+                "CI", "CI", List.of(), List.of(), 24, List.of("jenkins", "gitlab", "discovery", "analysis"),
+                List.of("jenkins_log"));
         ProjectContext project = new ProjectContext("payment", "payment", "repo", "1",
                 "job", "sonar", "main", "logs", "apm", true, List.of());
         Instant end = Instant.parse("2026-06-12T00:00:00Z");
@@ -161,8 +199,18 @@ class MCPReActAgentTest {
     private List<ToolDefinition> tools(String... names) {
         List<ToolDefinition> definitions = new ArrayList<>();
         for (String name : names) {
-            definitions.add(new ToolDefinition(name, "Jenkins", "Jenkins tool",
-                    List.of("jenkinsBuildUrl"), 1000, List.of("jenkins"), 500, false));
+            if ("jenkins.find_recent_failed_builds".equals(name)) {
+                definitions.add(new ToolDefinition(name, "Jenkins", "Jenkins discovery",
+                        List.of("jenkinsJobName", "timeRange"), 1000, List.of("jenkins", "time"), 500, false,
+                        List.of(), List.of("buildNumber", "commitSha"), "discovery", List.of(), 3));
+            } else if ("gitlab.find_merge_request_by_commit".equals(name)) {
+                definitions.add(new ToolDefinition(name, "GitLab", "GitLab discovery",
+                        List.of("gitlabProjectId", "commitSha"), 1000, List.of("gitlab"), 500, false,
+                        List.of(), List.of("mrIid"), "discovery", List.of(), 3));
+            } else {
+                definitions.add(new ToolDefinition(name, "Jenkins", "Jenkins tool",
+                        List.of("jenkinsBuildUrl"), 1000, List.of("jenkins"), 500, false));
+            }
         }
         return definitions;
     }
@@ -179,6 +227,15 @@ class MCPReActAgentTest {
                 evidence, null, 1);
         return new ParallelAgentExecutionReport("TASK-1", 1, 1, 0, 0, 1,
                 List.of(), List.of(result), evidence, List.of(), Map.of());
+    }
+
+    private ParallelAgentExecutionReport reportWithMetadata(String toolName, Map<String, Object> metadata) {
+        EvidenceItem evidence = new EvidenceItem("tool_discovery", "Tool discovery", metadata.toString(), 0.8,
+                "uri", "raw", metadata);
+        ToolCallResult result = new ToolCallResult(toolName, "SUCCESS", metadata.toString(), "raw://" + toolName,
+                List.of(evidence), null, 1);
+        return new ParallelAgentExecutionReport("TASK-1", 1, 1, 0, 0, 1,
+                List.of(), List.of(result), List.of(evidence), List.of(), Map.of());
     }
 
     private String plan(String toolName) {
@@ -200,6 +257,18 @@ class MCPReActAgentTest {
                   "riskNotes": []
                 }
                 """.formatted(toolName);
+    }
+
+    private String emptyPlan() {
+        return """
+                {
+                  "reasoningSummary": "rules provide candidates",
+                  "toolCalls": [],
+                  "stopCondition": "",
+                  "missingFacts": [],
+                  "riskNotes": []
+                }
+                """;
     }
 
     private String reflection(boolean sufficient) {

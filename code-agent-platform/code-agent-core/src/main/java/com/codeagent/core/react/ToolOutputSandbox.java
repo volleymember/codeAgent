@@ -95,9 +95,20 @@ public class ToolOutputSandbox {
 
     private Map<String, Object> extractFacts(String text, ToolCallResult result) {
         Map<String, Object> facts = new LinkedHashMap<>();
+        for (EvidenceItem item : result.evidence()) {
+            copyKnownFact(facts, item.metadata(), "buildNumber");
+            copyKnownFact(facts, item.metadata(), "buildUrl");
+            copyKnownFact(facts, item.metadata(), "commitSha");
+            copyKnownFact(facts, item.metadata(), "branch");
+            copyKnownFact(facts, item.metadata(), "failedStage");
+            copyKnownFact(facts, item.metadata(), "mrIid");
+            copyKnownFact(facts, item.metadata(), "sourceBranch");
+            copyKnownFact(facts, item.metadata(), "targetBranch");
+            copyKnownFact(facts, item.metadata(), "traceId");
+        }
         first(EXCEPTION, text).ifPresent(value -> facts.put("exceptionName", value));
-        first(COMMIT, text).ifPresent(value -> facts.put("commitSha", value));
-        first(BRANCH, text).ifPresent(value -> facts.put("branch", value));
+        first(COMMIT, text).ifPresent(value -> facts.putIfAbsent("commitSha", value));
+        first(BRANCH, text).ifPresent(value -> facts.putIfAbsent("branch", value));
         Matcher file = FILE_LINE.matcher(text);
         if (file.find()) {
             facts.put("filePath", file.group(1));
@@ -107,6 +118,16 @@ public class ToolOutputSandbox {
         facts.put("status", result.status());
         facts.put("evidenceCount", result.evidence().size());
         return facts;
+    }
+
+    private void copyKnownFact(Map<String, Object> facts, Map<String, Object> metadata, String key) {
+        if (metadata == null) {
+            return;
+        }
+        Object value = metadata.get(key);
+        if (value != null && !String.valueOf(value).isBlank()) {
+            facts.putIfAbsent(key, value);
+        }
     }
 
     private List<EvidenceItem> sanitizedEvidence(List<EvidenceItem> evidence) {

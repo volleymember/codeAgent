@@ -51,6 +51,35 @@ class IntentAmbiguityResolverTest {
         assertThat(decision.needsClarification()).isFalse();
     }
 
+    @Test
+    void missingJenkinsBuildUrlDoesNotNeedClarificationButMissingJenkinsConfigDoes() {
+        ProjectContext configured = new ProjectContext("payment", "payment", "repo", "1",
+                null, "payment-ci", null, "sonar", "main", "logs", "apm",
+                null, null, List.of(), true, true, List.of(), List.of("buildNumber"));
+        var intent = new com.codeagent.core.intent.dto.IntentLeafView("default", 1, "CI_FAILURE_ANALYSIS", "ROOT/CI",
+                "CI", "CI", List.of(), List.of(), 24, List.of("jenkins"),
+                List.of("jenkins_log"), List.of("jenkins.find_recent_failed_builds"), List.of("jenkins.get_test_report"),
+                List.of("jenkinsJobName"));
+        IntentClassificationResult classification = new IntentClassificationResult("CI_FAILURE_ANALYSIS", "ROOT/CI", 0.90,
+                List.of(new IntentCandidate("CI_FAILURE_ANALYSIS", 0.90, List.of()),
+                        new IntentCandidate("MR_IMPACT_ANALYSIS", 0.50, List.of())),
+                List.of(), false, "", Map.of());
+
+        AmbiguityDecision noBuildUrlDecision = resolver.resolve("TASK-1", "SESSION-1",
+                new CreateAgentTaskCommand("CI_FAILURE_ANALYSIS", "payment", null, null,
+                        null, null, null, null), query(), classification, configured, intent);
+
+        ProjectContext missingJenkins = new ProjectContext("payment", "payment", "repo", "1",
+                null, null, null, "sonar", "main", "logs", "apm",
+                null, null, List.of(), true, false, List.of("jenkinsJobName"), List.of("buildNumber"));
+        AmbiguityDecision missingConfigDecision = resolver.resolve("TASK-1", "SESSION-1",
+                command(), query(), classification, missingJenkins, intent);
+
+        assertThat(noBuildUrlDecision.needsClarification()).isFalse();
+        assertThat(missingConfigDecision.needsClarification()).isTrue();
+        assertThat(missingConfigDecision.reason()).contains("MISSING_REQUIRED_PLATFORM_CONFIG");
+    }
+
     private CreateAgentTaskCommand command() {
         return new CreateAgentTaskCommand("CI_FAILURE_ANALYSIS", "payment", null, null,
                 null, null, null, null);

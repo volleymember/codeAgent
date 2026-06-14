@@ -32,6 +32,7 @@ public class MCPReActAgent {
     private final ToolCallGuardrail guardrail;
     private final ToolScoreRanker ranker;
     private final ToolOutputSandbox sandbox;
+    private final EvidenceMatrixPlanner evidenceMatrixPlanner;
     private final AgentProperties properties;
 
     public MCPReActAgent(LlmClient llmClient,
@@ -40,6 +41,7 @@ public class MCPReActAgent {
                          ToolCallGuardrail guardrail,
                          ToolScoreRanker ranker,
                          ToolOutputSandbox sandbox,
+                         EvidenceMatrixPlanner evidenceMatrixPlanner,
                          AgentProperties properties) {
         this.llmClient = llmClient;
         this.mcpRouter = mcpRouter;
@@ -47,6 +49,7 @@ public class MCPReActAgent {
         this.guardrail = guardrail;
         this.ranker = ranker;
         this.sandbox = sandbox;
+        this.evidenceMatrixPlanner = evidenceMatrixPlanner;
         this.properties = properties;
     }
 
@@ -72,7 +75,8 @@ public class MCPReActAgent {
             rounds = round;
             InvestigationContext context = context(initialContext, knownFacts, missingFacts, toolResults,
                     rejected, successfulToolCallKeys, evidence);
-            List<ToolPlanCandidate> candidates = plan(context, definitions, rejected);
+            List<ToolPlanCandidate> candidates = new ArrayList<>(evidenceMatrixPlanner.bootstrapCandidates(context, definitions));
+            candidates.addAll(plan(context, definitions, rejected));
             List<ToolCallValidation> validations = candidates.stream()
                     .map(candidate -> guardrail.validate(candidate, definitions, context))
                     .toList();

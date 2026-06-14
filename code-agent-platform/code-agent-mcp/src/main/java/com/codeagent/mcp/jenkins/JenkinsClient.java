@@ -9,6 +9,7 @@ import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.net.URLEncoder;
 
 @Component
 public class JenkinsClient {
@@ -21,6 +22,10 @@ public class JenkinsClient {
 
     public JsonNode getBuildStatus(JenkinsBuildRef ref) {
         return getJson(ref.sourceUri() + "/api/json");
+    }
+
+    public JsonNode getJobBuilds(String jobName) {
+        return getJson(jobUrl(jobName) + "/api/json?tree=builds[number,url,result,timestamp,building,actions[lastBuiltRevision[SHA1,branch[name]]],changeSet[items[commitId]]]{0,30}");
     }
 
     public JsonNode getTestReport(JenkinsBuildRef ref) {
@@ -54,6 +59,23 @@ public class JenkinsClient {
         if (!properties.getJenkins().configured()) {
             throw new BusinessException("JENKINS_NOT_CONFIGURED", "JENKINS_USERNAME and JENKINS_TOKEN are required.");
         }
+        if (properties.getJenkins().getBaseUrl() == null || properties.getJenkins().getBaseUrl().isBlank()) {
+            throw new BusinessException("JENKINS_NOT_CONFIGURED", "JENKINS_BASE_URL is required.");
+        }
+    }
+
+    public JenkinsBuildRef buildRef(String jobName, String buildNumber) {
+        return new JenkinsBuildRef(jobName, buildNumber, jobUrl(jobName) + "/" + buildNumber);
+    }
+
+    public String jobUrl(String jobName) {
+        ensureConfigured();
+        String base = properties.getJenkins().getBaseUrl().replaceAll("/+$", "");
+        String path = java.util.Arrays.stream(jobName.split("/"))
+                .filter(part -> !part.isBlank())
+                .map(part -> "job/" + URLEncoder.encode(part, StandardCharsets.UTF_8))
+                .reduce("", (left, right) -> left + "/" + right);
+        return base + path;
     }
 
     private String basicAuth() {

@@ -15,6 +15,8 @@ import com.codeagent.core.intent.IntentTreeService;
 import com.codeagent.core.intent.dto.IntentLeafView;
 import com.codeagent.core.parallel.ParallelAgentExecutionReport;
 import com.codeagent.core.parallel.ParallelAgentExecutionService;
+import com.codeagent.core.react.EvidenceMatrix;
+import com.codeagent.core.react.EvidenceMatrixPlanner;
 import com.codeagent.core.react.InvestigationContext;
 import com.codeagent.core.react.MCPReActAgent;
 import com.codeagent.core.react.MCPReActResult;
@@ -109,6 +111,9 @@ public class AgentOrchestrator {
     /** MCP ReAct Agent，用于在启用 ReAct 模式时执行多轮工具调查。 */
     private final MCPReActAgent mcpReActAgent;
 
+    /** 证据矩阵规划器，用于根据意图决定证据类型、发现工具和运行时缺失事实。 */
+    private final EvidenceMatrixPlanner evidenceMatrixPlanner;
+
     /** 评审 Agent，负责判断当前证据是否足够支撑最终结论。 */
     private final CritiqueAgent critiqueAgent;
 
@@ -149,6 +154,7 @@ public class AgentOrchestrator {
      * @param timeRangeResolver             时间范围解析器
      * @param projectContextResolver        项目上下文解析器
      * @param mcpReActAgent                 MCP ReAct Agent
+     * @param evidenceMatrixPlanner         证据矩阵规划器
      * @param critiqueAgent                 评审 Agent
      * @param finalReportAgent              最终报告 Agent
      * @param parallelAgentExecutionService 并行工具执行服务
@@ -168,6 +174,7 @@ public class AgentOrchestrator {
                              TimeRangeResolver timeRangeResolver,
                              ProjectContextResolver projectContextResolver,
                              MCPReActAgent mcpReActAgent,
+                             EvidenceMatrixPlanner evidenceMatrixPlanner,
                              CritiqueAgent critiqueAgent,
                              FinalReportAgent finalReportAgent,
                              ParallelAgentExecutionService parallelAgentExecutionService,
@@ -186,6 +193,7 @@ public class AgentOrchestrator {
         this.timeRangeResolver = timeRangeResolver;
         this.projectContextResolver = projectContextResolver;
         this.mcpReActAgent = mcpReActAgent;
+        this.evidenceMatrixPlanner = evidenceMatrixPlanner;
         this.critiqueAgent = critiqueAgent;
         this.finalReportAgent = finalReportAgent;
         this.parallelAgentExecutionService = parallelAgentExecutionService;
@@ -276,26 +284,43 @@ public class AgentOrchestrator {
         try {
             // 1. 查询理解：将自然语言输入和任务字段转换为结构化信息。
             updateStatus(taskNo, sessionId, TaskStatus.QUERY_UNDERSTANDING, null, 0);
+
             QueryUnderstandingResult queryUnderstanding = queryUnderstandingService.understand(taskNo, sessionId, command);
+
             AgentStepEntity queryStep = startStep(taskNo, "QUERY-UNDERSTANDING", "QueryUnderstandingService",
                     null, JsonSupport.toJson(command));
+
             finishStep(queryStep, AgentStepStatus.SUCCESS, JsonSupport.toJson(queryUnderstanding), null);
 
             // 2. 意图分类：从启用的意图叶子节点中选择最匹配的业务意图。
             updateStatus(taskNo, sessionId, TaskStatus.INTENT_CLASSIFYING, null, 0);
+
             List<IntentLeafView> activeLeaves = intentTreeService.activeLeaves();
+
             IntentClassificationResult intentClassification = intentClassifier.classify(taskNo, sessionId,
                     queryUnderstanding.originalQuery(), queryUnderstanding, activeLeaves, List.of(), "");
+
+
             AgentStepEntity intentStep = startStep(taskNo, "INTENT-CLASSIFICATION", "IntentClassifier",
                     null, JsonSupport.toJson(Map.of("leafCount", activeLeaves.size(), "query", queryUnderstanding)));
             finishStep(intentStep, AgentStepStatus.SUCCESS, JsonSupport.toJson(intentClassification), null);
 
+            IntentLeafView selectedIntent = activeLeaves.stream()
+                    .filter(leaf -> leaf.nodeCode().equals(intentClassification.selectedIntentCode()))
+                    .findFirst()
+                    .orElse(null);
+            ProjectContext projectContext = projectContextResolver.resolve(command, queryUnderstanding);
+
             // 3. 歧义检查：判断输入是否足够执行。如果需要澄清，则暂停任务等待用户补充。
             updateStatus(taskNo, sessionId, TaskStatus.AMBIGUITY_CHECKING, null, 0);
+
+
             AmbiguityDecision ambiguity = ambiguityResolver.resolve(taskNo, sessionId, command,
-                    queryUnderstanding, intentClassification);
+                    queryUnderstanding, intentClassification, projectContext, selectedIntent);
             AgentStepEntity ambiguityStep = startStep(taskNo, "AMBIGUITY-CHECK", "IntentAmbiguityResolver",
                     null, JsonSupport.toJson(intentClassification));
+
+
             finishStep(ambiguityStep, AgentStepStatus.SUCCESS, JsonSupport.toJson(ambiguity), null);
             if (ambiguity.needsClarification()) {
                 updateStatus(taskNo, sessionId, TaskStatus.NEEDS_CLARIFICATION,
@@ -305,22 +330,19 @@ public class AgentOrchestrator {
 
             // 4. 上下文解析：加载 Memory Center 规则、历史经验和工作记忆。
             updateStatus(taskNo, sessionId, TaskStatus.CONTEXT_RESOLVING, null, 0);
+
             MemoryCenterContext memoryContext = memoryCenterService.buildContext(new MemoryRecallRequest(
                     command.projectKey(), command.taskType(), memoryQuery(command), sessionId,
                     List.of(command.taskType(), command.projectKey()), 6,
                     taskNo, "MemoryCenter", "CONTEXT_RESOLVING"));
+
             memoryCenterService.appendAgentNote(sessionId, "MemoryCenter", "CONTEXT_RESOLVING",
                     "Loaded resident rules and recalled historical bug episodes.",
                     Map.of("coreRules", memoryContext.coreRules().size(),
                             "recalledEpisodes", memoryContext.recalledEpisodes().size()));
 
-            // 5. 解析意图、时间范围和项目上下文，为后续工具调用准备已知事实。
-            IntentLeafView selectedIntent = activeLeaves.stream()
-                    .filter(leaf -> leaf.nodeCode().equals(intentClassification.selectedIntentCode()))
-                    .findFirst()
-                    .orElse(null);
+            // 5. 解析时间范围，为后续工具调用准备已知事实。
             ResolvedTimeRange timeRange = timeRangeResolver.resolve(command, queryUnderstanding, selectedIntent);
-            ProjectContext projectContext = projectContextResolver.resolve(command, queryUnderstanding);
 
             // 6. 如果开启 MCP ReAct 模式，则使用 ReAct 调查流程并提前返回。
             if (properties.getMcpReact().isEnabled()) {
@@ -464,10 +486,11 @@ public class AgentOrchestrator {
 
         // 构建 ReAct 初始已知事实和缺失事实列表。
         Map<String, Object> knownFacts = initialKnownFacts(command, queryUnderstanding, projectContext, timeRange);
-        List<String> missingFacts = new ArrayList<>(projectContext.missingFields());
-        if (selectedIntent != null) {
-            missingFacts.addAll(selectedIntent.requiredEvidenceTypes());
-        }
+        EvidenceMatrix evidenceMatrix = evidenceMatrixPlanner.plan(selectedIntent, projectContext, knownFacts);
+        List<String> missingFacts = new ArrayList<>();
+        missingFacts.addAll(projectContext.missingRuntimeFacts());
+        missingFacts.addAll(evidenceMatrix.missingRuntimeFacts());
+        missingFacts.addAll(evidenceMatrix.requiredEvidenceTypes());
 
         // 执行多轮 MCP ReAct 调查。
         MCPReActResult reactResult = mcpReActAgent.execute(new InvestigationContext(

@@ -3,6 +3,7 @@ package com.codeagent.core.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @ConfigurationProperties(prefix = "agent")
@@ -201,13 +202,37 @@ public class AgentProperties {
     }
 
     public static class ProjectProperties {
+        private String projectKey;
+        private String serviceName;
         private String repoName;
         private String gitlabProjectId;
+        private String gitlabRepoUrl;
         private String jenkinsJobName;
+        private String jenkinsPipelineName;
         private String sonarqubeProjectKey;
         private String defaultBranch;
         private String logIndex;
         private String apmServiceName;
+        private String alertGroup;
+        private String ownerTeam;
+        private List<String> environments = List.of();
+        private boolean enabled = true;
+
+        public String getProjectKey() {
+            return projectKey;
+        }
+
+        public void setProjectKey(String projectKey) {
+            this.projectKey = projectKey;
+        }
+
+        public String getServiceName() {
+            return serviceName;
+        }
+
+        public void setServiceName(String serviceName) {
+            this.serviceName = serviceName;
+        }
 
         public String getRepoName() {
             return repoName;
@@ -225,12 +250,28 @@ public class AgentProperties {
             this.gitlabProjectId = gitlabProjectId;
         }
 
+        public String getGitlabRepoUrl() {
+            return gitlabRepoUrl;
+        }
+
+        public void setGitlabRepoUrl(String gitlabRepoUrl) {
+            this.gitlabRepoUrl = gitlabRepoUrl;
+        }
+
         public String getJenkinsJobName() {
             return jenkinsJobName;
         }
 
         public void setJenkinsJobName(String jenkinsJobName) {
             this.jenkinsJobName = jenkinsJobName;
+        }
+
+        public String getJenkinsPipelineName() {
+            return jenkinsPipelineName;
+        }
+
+        public void setJenkinsPipelineName(String jenkinsPipelineName) {
+            this.jenkinsPipelineName = jenkinsPipelineName;
         }
 
         public String getSonarqubeProjectKey() {
@@ -263,6 +304,38 @@ public class AgentProperties {
 
         public void setApmServiceName(String apmServiceName) {
             this.apmServiceName = apmServiceName;
+        }
+
+        public String getAlertGroup() {
+            return alertGroup;
+        }
+
+        public void setAlertGroup(String alertGroup) {
+            this.alertGroup = alertGroup;
+        }
+
+        public String getOwnerTeam() {
+            return ownerTeam;
+        }
+
+        public void setOwnerTeam(String ownerTeam) {
+            this.ownerTeam = ownerTeam;
+        }
+
+        public List<String> getEnvironments() {
+            return environments;
+        }
+
+        public void setEnvironments(List<String> environments) {
+            this.environments = environments == null ? List.of() : environments;
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
     }
 }

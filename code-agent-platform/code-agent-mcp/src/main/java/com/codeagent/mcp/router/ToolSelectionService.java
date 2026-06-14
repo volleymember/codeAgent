@@ -73,10 +73,11 @@ public class ToolSelectionService {
 
     private double platformScore(ToolDefinition definition, Map<String, Object> inputs, String intent) {
         String platform = normalize(definition.platform());
-        if (platform.contains("jenkins") && hasText(inputs.get("jenkinsBuildUrl"))) {
+        if (platform.contains("jenkins") && (hasText(inputs.get("jenkinsJobName")) || hasText(inputs.get("jenkinsBuildUrl")))) {
             return intent.contains("ci") || intent.contains("fail") || intent.contains("build") ? 0.52 : 0.34;
         }
-        if (platform.contains("gitlab") && hasText(inputs.get("gitlabMrUrl"))) {
+        if (platform.contains("gitlab") && (hasText(inputs.get("gitlabProjectId")) || hasText(inputs.get("gitlabMrUrl"))
+                || hasText(inputs.get("mrIid")) || hasText(inputs.get("commitSha")))) {
             return intent.contains("mr") || intent.contains("merge") || intent.contains("risk") || intent.contains("code") ? 0.48 : 0.32;
         }
         if (platform.contains("sonarqube") && hasText(inputs.get("sonarqubeProjectKey"))) {

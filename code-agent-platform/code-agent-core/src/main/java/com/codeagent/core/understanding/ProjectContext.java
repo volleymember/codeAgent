@@ -8,16 +8,45 @@ public record ProjectContext(
         String serviceName,
         String repoName,
         String gitlabProjectId,
+        String gitlabRepoUrl,
         String jenkinsJobName,
+        String jenkinsPipelineName,
         String sonarqubeProjectKey,
         String defaultBranch,
         String logIndex,
         String apmServiceName,
+        String alertGroup,
+        String ownerTeam,
+        List<String> environments,
+        boolean bindingFound,
         boolean complete,
-        List<String> missingFields
+        List<String> missingConfigFields,
+        List<String> missingRuntimeFacts
 ) {
     public ProjectContext {
-        missingFields = missingFields == null ? List.of() : List.copyOf(missingFields);
+        environments = environments == null ? List.of() : List.copyOf(environments);
+        missingConfigFields = missingConfigFields == null ? List.of() : List.copyOf(missingConfigFields);
+        missingRuntimeFacts = missingRuntimeFacts == null ? List.of() : List.copyOf(missingRuntimeFacts);
+    }
+
+    public ProjectContext(String projectKey,
+                          String serviceName,
+                          String repoName,
+                          String gitlabProjectId,
+                          String jenkinsJobName,
+                          String sonarqubeProjectKey,
+                          String defaultBranch,
+                          String logIndex,
+                          String apmServiceName,
+                          boolean complete,
+                          List<String> missingFields) {
+        this(projectKey, serviceName, repoName, gitlabProjectId, null, jenkinsJobName, null,
+                sonarqubeProjectKey, defaultBranch, logIndex, apmServiceName, null, null, List.of(),
+                complete, complete, missingFields, List.of());
+    }
+
+    public List<String> missingFields() {
+        return missingConfigFields;
     }
 
     public Map<String, Object> asKnownFacts() {
@@ -26,11 +55,18 @@ public record ProjectContext(
         putIfPresent(facts, "serviceName", serviceName);
         putIfPresent(facts, "repoName", repoName);
         putIfPresent(facts, "gitlabProjectId", gitlabProjectId);
+        putIfPresent(facts, "gitlabRepoUrl", gitlabRepoUrl);
         putIfPresent(facts, "jenkinsJobName", jenkinsJobName);
+        putIfPresent(facts, "jenkinsPipelineName", jenkinsPipelineName);
         putIfPresent(facts, "sonarqubeProjectKey", sonarqubeProjectKey);
         putIfPresent(facts, "defaultBranch", defaultBranch);
         putIfPresent(facts, "logIndex", logIndex);
         putIfPresent(facts, "apmServiceName", apmServiceName);
+        putIfPresent(facts, "alertGroup", alertGroup);
+        putIfPresent(facts, "ownerTeam", ownerTeam);
+        if (!environments.isEmpty()) {
+            facts.put("environments", environments);
+        }
         return facts;
     }
 

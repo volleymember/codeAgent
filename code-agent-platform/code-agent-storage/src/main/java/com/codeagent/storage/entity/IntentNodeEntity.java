@@ -54,6 +54,15 @@ public class IntentNodeEntity {
     @Column(name = "required_evidence_types_json", columnDefinition = "JSON")
     public String requiredEvidenceTypesJson;
 
+    @Column(name = "preferred_discovery_tools_json", columnDefinition = "JSON")
+    public String preferredDiscoveryToolsJson;
+
+    @Column(name = "preferred_analysis_tools_json", columnDefinition = "JSON")
+    public String preferredAnalysisToolsJson;
+
+    @Column(name = "required_config_fields_json", columnDefinition = "JSON")
+    public String requiredConfigFieldsJson;
+
     @Column
     public Boolean enabled = true;
 

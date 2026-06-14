@@ -24,11 +24,34 @@ public class SonarQubeToolConfig {
     }
 
     @Bean
+    ToolExecutor sonarqubeFindRecentIssuesTool(SonarQubeClient client,
+                                               RawOutputStore rawOutputStore,
+                                               DataSandboxService dataSandboxService) {
+        return new JsonToolExecutor(def("sonarqube.find_recent_issues", "Fetch recent SonarQube issues.",
+                List.of("sonarqubeProjectKey", "timeRange"), List.of("issueKeys", "filePath", "severity"),
+                List.of("sonar", "quality", "issue", "recent", "time", "discovery"), 1200, false, "discovery"),
+                rawOutputStore, dataSandboxService, request -> {
+            String projectKey = request.stringInput("sonarqubeProjectKey");
+            JsonNode raw = client.listIssues(projectKey);
+            int total = raw.path("total").asInt(0);
+            String firstComponent = raw.path("issues").isArray() && raw.path("issues").size() > 0
+                    ? raw.path("issues").path(0).path("component").asText("")
+                    : "";
+            String summary = "SonarQube project `%s` recent issue query returned %d issues.".formatted(projectKey, total);
+            return new ToolExecutionPayload(raw, summary, List.of(new EvidenceItem(
+                    "sonarqube_recent_issues", "SonarQube recent issues", summary, 0.80,
+                    sonarProjectUri(projectKey), null, Map.of("projectKey", projectKey, "issueTotal", total,
+                    "filePath", firstComponent))));
+        });
+    }
+
+    @Bean
     ToolExecutor sonarqubeGetQualityGateTool(SonarQubeClient client,
                                              RawOutputStore rawOutputStore,
                                              DataSandboxService dataSandboxService) {
         return new JsonToolExecutor(def("sonarqube.get_quality_gate", "Fetch SonarQube quality gate.",
-                List.of("sonarqubeProjectKey"), List.of("sonar", "quality", "gate", "risk"), 700, false),
+                List.of("sonarqubeProjectKey"), List.of("qualityGateStatus"),
+                List.of("sonar", "quality", "gate", "risk"), 700, false, "analysis"),
                 rawOutputStore, dataSandboxService, request -> {
             String projectKey = request.stringInput("sonarqubeProjectKey");
             JsonNode raw = client.getQualityGate(projectKey);
@@ -45,7 +68,8 @@ public class SonarQubeToolConfig {
                                          RawOutputStore rawOutputStore,
                                          DataSandboxService dataSandboxService) {
         return new JsonToolExecutor(def("sonarqube.list_issues", "Fetch unresolved SonarQube issues.",
-                List.of("sonarqubeProjectKey"), List.of("sonar", "quality", "issue", "bug", "vulnerability"), 1600, false),
+                List.of("sonarqubeProjectKey"), List.of("issueKeys", "filePath", "severity"),
+                List.of("sonar", "quality", "issue", "bug", "vulnerability"), 1600, false, "analysis"),
                 rawOutputStore, dataSandboxService, request -> {
             String projectKey = request.stringInput("sonarqubeProjectKey");
             JsonNode raw = client.listIssues(projectKey);
@@ -88,7 +112,7 @@ public class SonarQubeToolConfig {
                                      String metricKey, String title, String sourceType, List<String> tags,
                                      DataSandboxService dataSandboxService) {
         return new JsonToolExecutor(def(toolName, "Fetch SonarQube measure " + metricKey + ".",
-                List.of("sonarqubeProjectKey"), tags, 700, false),
+                List.of("sonarqubeProjectKey"), List.of(metricKey), tags, 700, false, "analysis"),
                 rawOutputStore, dataSandboxService, request -> {
             String projectKey = request.stringInput("sonarqubeProjectKey");
             JsonNode raw = client.getMeasures(projectKey);
@@ -120,10 +144,12 @@ public class SonarQubeToolConfig {
     private ToolDefinition def(String name,
                                String description,
                                List<String> requiredInputs,
+                               List<String> outputFacts,
                                List<String> tags,
                                int estimatedOutputTokens,
-                               boolean highCost) {
+                               boolean highCost,
+                               String toolType) {
         return new ToolDefinition(name, "SonarQube", description, requiredInputs, 15000,
-                tags, estimatedOutputTokens, highCost);
+                tags, estimatedOutputTokens, highCost, List.of(), outputFacts, toolType, List.of(), highCost ? 8 : 3);
     }
 }

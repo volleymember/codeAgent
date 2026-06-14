@@ -14,6 +14,7 @@ import com.codeagent.core.parallel.ParallelAgentExecutionService;
 import com.codeagent.core.react.MCPReActAgent;
 import com.codeagent.core.react.MCPReActResult;
 import com.codeagent.core.react.ObservationReflection;
+import com.codeagent.core.react.EvidenceMatrixPlanner;
 import com.codeagent.core.understanding.AmbiguityDecision;
 import com.codeagent.core.understanding.IntentAmbiguityResolver;
 import com.codeagent.core.understanding.IntentClassificationResult;
@@ -59,6 +60,8 @@ class AgentOrchestratorTest {
         Harness h = harness(new AgentProperties());
         when(h.ambiguityResolver.resolve(any(), any(), any(), any(), any()))
                 .thenReturn(new AmbiguityDecision(true, "LOW_CONFIDENCE", "请确认任务类型。"));
+        when(h.ambiguityResolver.resolve(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new AmbiguityDecision(true, "LOW_CONFIDENCE", "请确认任务类型。"));
 
         h.run();
 
@@ -66,6 +69,41 @@ class AgentOrchestratorTest {
         assertThat(h.task.finalReport).isEqualTo("请确认任务类型。");
         verify(h.mcpReActAgent, never()).execute(any());
         verify(h.parallelAgentExecutionService, never()).collectEvidence(any(), any(), any(), anyList());
+    }
+
+    @Test
+    void missingProjectOrServiceNeedsClarification() throws Exception {
+        Harness h = harness(new AgentProperties());
+        h.command = new CreateAgentTaskCommand("CI_FAILURE_ANALYSIS", null, null, null,
+                null, null, null, null, "构建失败", null, null, null, null, null);
+        when(h.queryUnderstandingService.understand(any(), any(), any())).thenReturn(new QueryUnderstandingResult(
+                "构建失败", "构建失败", List.of(), List.of(), List.of(), List.of(),
+                "", "", "", "", "", "", List.of(), 0.2));
+        when(h.projectContextResolver.resolve(any(), any())).thenReturn(new ProjectContext(null, null,
+                null, null, null, null, null, null, null, false, List.of("projectKeyOrServiceName")));
+        when(h.ambiguityResolver.resolve(any(), any(), any(), any(), any(), any(), any()))
+                .thenCallRealMethod();
+
+        h.run();
+
+        assertThat(h.task.status).isEqualTo("NEEDS_CLARIFICATION");
+        verify(h.mcpReActAgent, never()).execute(any());
+    }
+
+    @Test
+    void missingJenkinsBuildUrlDoesNotNeedClarificationWhenProjectHasJenkinsConfig() throws Exception {
+        Harness h = harness(new AgentProperties());
+        h.command = new CreateAgentTaskCommand("CI_FAILURE_ANALYSIS", "payment", null, null,
+                null, null, null, null, "构建失败", null, null, null, null, null);
+        when(h.mcpReActAgent.execute(any())).thenReturn(reactResult());
+        when(h.critiqueAgent.critique(anyList(), anyList(), anyList(), any(), anyList()))
+                .thenReturn(Map.of("decision", "FINALIZE", "confidence", 0.9, "missingEvidence", List.of()));
+        when(h.finalReportAgent.generate(any(), any(), any(), anyList(), any(), any())).thenReturn("report");
+
+        h.run();
+
+        assertThat(h.task.status).isEqualTo("COMPLETED");
+        verify(h.mcpReActAgent).execute(any());
     }
 
     @Test
@@ -120,6 +158,7 @@ class AgentOrchestratorTest {
         h.timeRangeResolver = mock(TimeRangeResolver.class);
         h.projectContextResolver = mock(ProjectContextResolver.class);
         h.mcpReActAgent = mock(MCPReActAgent.class);
+        h.evidenceMatrixPlanner = new EvidenceMatrixPlanner();
         h.critiqueAgent = mock(CritiqueAgent.class);
         h.finalReportAgent = mock(FinalReportAgent.class);
         h.parallelAgentExecutionService = mock(ParallelAgentExecutionService.class);
@@ -147,13 +186,15 @@ class AgentOrchestratorTest {
                 .thenReturn(classification());
         when(h.ambiguityResolver.resolve(any(), any(), any(), any(), any()))
                 .thenReturn(new AmbiguityDecision(false, "", ""));
+        when(h.ambiguityResolver.resolve(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new AmbiguityDecision(false, "", ""));
         when(h.memoryCenterService.buildContext(any())).thenReturn(memory());
         when(h.timeRangeResolver.resolve(any(), any(), any())).thenReturn(range());
         when(h.projectContextResolver.resolve(any(), any())).thenReturn(project());
         h.orchestrator = new AgentOrchestrator(h.taskRepository, h.sessionRepository, h.stepRepository,
                 h.evidenceRepository, h.plannerAgent, h.queryUnderstandingService, h.intentTreeService,
                 h.intentClassifier, h.ambiguityResolver, h.timeRangeResolver, h.projectContextResolver,
-                h.mcpReActAgent, h.critiqueAgent, h.finalReportAgent, h.parallelAgentExecutionService,
+                h.mcpReActAgent, h.evidenceMatrixPlanner, h.critiqueAgent, h.finalReportAgent, h.parallelAgentExecutionService,
                 h.memoryCenterService, h.toolEvidenceRagIndexer, properties);
         return h;
     }
@@ -224,6 +265,7 @@ class AgentOrchestratorTest {
         TimeRangeResolver timeRangeResolver;
         ProjectContextResolver projectContextResolver;
         MCPReActAgent mcpReActAgent;
+        EvidenceMatrixPlanner evidenceMatrixPlanner;
         CritiqueAgent critiqueAgent;
         FinalReportAgent finalReportAgent;
         ParallelAgentExecutionService parallelAgentExecutionService;

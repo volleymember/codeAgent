@@ -17,13 +17,43 @@ import java.util.Map;
 @Configuration
 public class JenkinsToolConfig {
     @Bean
+    ToolExecutor jenkinsFindRecentFailedBuildsTool(JenkinsClient client,
+                                                   RawOutputStore rawOutputStore,
+                                                   DataSandboxService dataSandboxService) {
+        return new JsonToolExecutor(def("jenkins.find_recent_failed_builds", "Find recent failed Jenkins builds.",
+                List.of("jenkinsJobName", "timeRange"), List.of("buildNumber", "buildUrl", "commitSha", "branch", "failedStage"),
+                List.of("jenkins", "ci", "build", "failure", "discovery", "time"), 900, false, "discovery"),
+                rawOutputStore, dataSandboxService, request -> {
+            String jobName = request.stringInput("jenkinsJobName");
+            JsonNode raw = client.getJobBuilds(jobName);
+            JsonNode selected = firstFailedBuild(raw);
+            String buildNumber = selected.path("number").asText("");
+            String buildUrl = selected.path("url").asText(buildNumber.isBlank() ? client.jobUrl(jobName) : client.buildRef(jobName, buildNumber).sourceUri());
+            String commitSha = commitSha(selected);
+            String branch = branch(selected);
+            String summary = "Jenkins job `%s` recent failed build #%s commit=%s branch=%s".formatted(
+                    jobName, buildNumber.isBlank() ? "unknown" : buildNumber, empty(commitSha), empty(branch));
+            Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+            metadata.put("jobName", jobName);
+            put(metadata, "buildNumber", buildNumber);
+            put(metadata, "buildUrl", buildUrl);
+            put(metadata, "commitSha", commitSha);
+            put(metadata, "branch", branch);
+            return new ToolExecutionPayload(raw, summary, List.of(new EvidenceItem(
+                    "jenkins_failed_build_discovery", "Jenkins recent failed build", summary, 0.84,
+                    buildUrl, null, metadata)));
+        });
+    }
+
+    @Bean
     ToolExecutor jenkinsGetBuildStatusTool(JenkinsClient client,
                                            RawOutputStore rawOutputStore,
                                            DataSandboxService dataSandboxService) {
         return new JsonToolExecutor(def("jenkins.get_build_status", "Fetch Jenkins build status.",
-                List.of("jenkinsBuildUrl"), List.of("jenkins", "ci", "build", "status"), 500, false),
+                List.of("jenkinsJobName", "buildNumber"), List.of("result", "buildUrl", "commitSha", "branch"),
+                List.of("jenkins", "ci", "build", "status"), 500, false, "analysis"),
                 rawOutputStore, dataSandboxService, request -> {
-            JenkinsBuildRef ref = JenkinsUrlParser.parseBuildUrl(request.stringInput("jenkinsBuildUrl"));
+            JenkinsBuildRef ref = buildRef(client, request);
             JsonNode raw = client.getBuildStatus(ref);
             String result = raw.path("result").asText("RUNNING_OR_UNKNOWN");
             String summary = "Jenkins build `%s` #%s result=%s, building=%s".formatted(
@@ -39,9 +69,10 @@ public class JenkinsToolConfig {
                                            RawOutputStore rawOutputStore,
                                            DataSandboxService dataSandboxService) {
         return new JsonToolExecutor(def("jenkins.get_failed_stage", "Fetch Jenkins pipeline stages.",
-                List.of("jenkinsBuildUrl"), List.of("jenkins", "ci", "stage", "fail"), 700, false),
+                List.of("jenkinsJobName", "buildNumber"), List.of("failedStage"),
+                List.of("jenkins", "ci", "stage", "fail"), 700, false, "analysis"),
                 rawOutputStore, dataSandboxService, request -> {
-            JenkinsBuildRef ref = JenkinsUrlParser.parseBuildUrl(request.stringInput("jenkinsBuildUrl"));
+            JenkinsBuildRef ref = buildRef(client, request);
             JsonNode raw = client.getPipelineDescription(ref);
             String failed = "unknown";
             for (JsonNode stage : raw.path("stages")) {
@@ -62,9 +93,10 @@ public class JenkinsToolConfig {
                                           RawOutputStore rawOutputStore,
                                           DataSandboxService dataSandboxService) {
         return new JsonToolExecutor(def("jenkins.get_test_report", "Fetch Jenkins test report.",
-                List.of("jenkinsBuildUrl"), List.of("jenkins", "ci", "test", "failure", "report"), 1400, false),
+                List.of("jenkinsJobName", "buildNumber"), List.of("failedTests", "testFailure"),
+                List.of("jenkins", "ci", "test", "failure", "report"), 1400, false, "analysis"),
                 rawOutputStore, dataSandboxService, request -> {
-            JenkinsBuildRef ref = JenkinsUrlParser.parseBuildUrl(request.stringInput("jenkinsBuildUrl"));
+            JenkinsBuildRef ref = buildRef(client, request);
             JsonNode raw = client.getTestReport(ref);
             int failCount = raw.path("failCount").asInt(0);
             int skipCount = raw.path("skipCount").asInt(0);
@@ -83,9 +115,10 @@ public class JenkinsToolConfig {
                                                  RawOutputStore rawOutputStore,
                                                  DataSandboxService dataSandboxService) {
         return new JsonToolExecutor(def("jenkins.get_console_log_summary", "Fetch and summarize Jenkins console log.",
-                List.of("jenkinsBuildUrl"), List.of("jenkins", "ci", "log", "compile", "error", "exception"), 2600, true),
+                List.of("jenkinsJobName", "buildNumber"), List.of("exceptionName", "filePath", "lineNumber", "commitSha"),
+                List.of("jenkins", "ci", "log", "compile", "error", "exception"), 2600, true, "analysis"),
                 rawOutputStore, dataSandboxService, request -> {
-            JenkinsBuildRef ref = JenkinsUrlParser.parseBuildUrl(request.stringInput("jenkinsBuildUrl"));
+            JenkinsBuildRef ref = buildRef(client, request);
             String raw = client.getConsoleLog(ref);
             String summary = JenkinsLogSandbox.summarize(raw);
             return new ToolExecutionPayload(Map.of("consoleLog", raw), summary, List.of(new EvidenceItem(
@@ -100,9 +133,10 @@ public class JenkinsToolConfig {
                                          RawOutputStore rawOutputStore,
                                          DataSandboxService dataSandboxService) {
         return new JsonToolExecutor(def("jenkins.get_artifacts", "Fetch Jenkins build artifacts metadata.",
-                List.of("jenkinsBuildUrl"), List.of("jenkins", "ci", "artifact", "build"), 700, false),
+                List.of("jenkinsJobName", "buildNumber"), List.of("artifacts"),
+                List.of("jenkins", "ci", "artifact", "build"), 700, false, "analysis"),
                 rawOutputStore, dataSandboxService, request -> {
-            JenkinsBuildRef ref = JenkinsUrlParser.parseBuildUrl(request.stringInput("jenkinsBuildUrl"));
+            JenkinsBuildRef ref = buildRef(client, request);
             JsonNode raw = client.getBuildStatus(ref).path("artifacts");
             int count = raw.isArray() ? raw.size() : 0;
             String summary = "Jenkins build `%s` #%s has %d artifacts.".formatted(ref.jobName(), ref.buildId(), count);
@@ -124,13 +158,67 @@ public class JenkinsToolConfig {
         return "none";
     }
 
+    private JenkinsBuildRef buildRef(JenkinsClient client, com.codeagent.mcp.model.ToolCallRequest request) {
+        return client.buildRef(request.stringInput("jenkinsJobName"), request.stringInput("buildNumber"));
+    }
+
+    private JsonNode firstFailedBuild(JsonNode raw) {
+        for (JsonNode build : raw.path("builds")) {
+            String result = build.path("result").asText("");
+            if ("FAILURE".equalsIgnoreCase(result) || "UNSTABLE".equalsIgnoreCase(result)) {
+                return build;
+            }
+        }
+        return raw.path("builds").isArray() && raw.path("builds").size() > 0 ? raw.path("builds").path(0) : raw;
+    }
+
+    private String commitSha(JsonNode build) {
+        for (JsonNode action : build.path("actions")) {
+            String sha = action.path("lastBuiltRevision").path("SHA1").asText("");
+            if (!sha.isBlank()) {
+                return sha;
+            }
+        }
+        for (JsonNode item : build.path("changeSet").path("items")) {
+            String sha = item.path("commitId").asText("");
+            if (!sha.isBlank()) {
+                return sha;
+            }
+        }
+        return "";
+    }
+
+    private String branch(JsonNode build) {
+        for (JsonNode action : build.path("actions")) {
+            for (JsonNode branch : action.path("lastBuiltRevision").path("branch")) {
+                String name = branch.path("name").asText("");
+                if (!name.isBlank()) {
+                    return name.replaceFirst("^origin/", "");
+                }
+            }
+        }
+        return "";
+    }
+
+    private void put(Map<String, Object> metadata, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            metadata.put(key, value);
+        }
+    }
+
+    private String empty(String value) {
+        return value == null || value.isBlank() ? "unknown" : value;
+    }
+
     private ToolDefinition def(String name,
                                String description,
                                List<String> requiredInputs,
+                               List<String> outputFacts,
                                List<String> tags,
                                int estimatedOutputTokens,
-                               boolean highCost) {
+                               boolean highCost,
+                               String toolType) {
         return new ToolDefinition(name, "Jenkins", description, requiredInputs, 20000,
-                tags, estimatedOutputTokens, highCost);
+                tags, estimatedOutputTokens, highCost, List.of(), outputFacts, toolType, List.of(), highCost ? 8 : 3);
     }
 }

@@ -87,11 +87,15 @@ public class ToolCallGuardrail {
             ProjectContext project = context.projectContext();
             putIfPresent(input, "sonarqubeProjectKey", project.sonarqubeProjectKey());
             putIfPresent(input, "gitlabProjectId", project.gitlabProjectId());
+            putIfPresent(input, "gitlabRepoUrl", project.gitlabRepoUrl());
             putIfPresent(input, "jenkinsJobName", project.jenkinsJobName());
+            putIfPresent(input, "jenkinsPipelineName", project.jenkinsPipelineName());
             putIfPresent(input, "repoName", project.repoName());
             putIfPresent(input, "serviceName", project.serviceName());
             putIfPresent(input, "apmServiceName", project.apmServiceName());
             putIfPresent(input, "logIndex", project.logIndex());
+            putIfPresent(input, "alertGroup", project.alertGroup());
+            putIfPresent(input, "ownerTeam", project.ownerTeam());
             putIfPresent(input, "branch", project.defaultBranch());
         }
         if (context.knownFacts() != null) {
@@ -102,6 +106,14 @@ public class ToolCallGuardrail {
             });
         }
         ResolvedTimeRange range = context.timeRange();
+        if (range != null && (definition.requiredInputs().contains("timeRange")
+                || definition.optionalInputs().contains("timeRange"))) {
+            input.putIfAbsent("timeRange", Map.of(
+                    "startTime", range.startTime().toString(),
+                    "endTime", range.endTime().toString(),
+                    "hours", range.hours()
+            ));
+        }
         if (range != null && (definition.requiredInputs().contains("startTime")
                 || definition.optionalInputs().contains("startTime")
                 || definition.tags().contains("time"))) {

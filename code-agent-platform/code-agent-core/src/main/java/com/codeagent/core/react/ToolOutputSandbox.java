@@ -38,7 +38,7 @@ public class ToolOutputSandbox {
         }
         Map<String, Object> facts = extractFacts(compressed, result);
         return new CompressedToolObservation(result.toolName(), sourceSystem(result), compressed, facts,
-                result.evidence(), redaction.count(), dropped, rawSize, compressed.length());
+                sanitizedEvidence(result.evidence()), redaction.count(), dropped, rawSize, compressed.length());
     }
 
     private String rawText(ToolCallResult result) {
@@ -107,6 +107,37 @@ public class ToolOutputSandbox {
         facts.put("status", result.status());
         facts.put("evidenceCount", result.evidence().size());
         return facts;
+    }
+
+    private List<EvidenceItem> sanitizedEvidence(List<EvidenceItem> evidence) {
+        if (evidence == null || evidence.isEmpty()) {
+            return List.of();
+        }
+        return evidence.stream()
+                .map(item -> new EvidenceItem(
+                        item.sourceType(),
+                        item.sourceSystem(),
+                        SensitiveDataMasker.mask(item.title()),
+                        SensitiveDataMasker.mask(item.summary()),
+                        item.score(),
+                        SensitiveDataMasker.mask(item.sourceUri()),
+                        SensitiveDataMasker.mask(item.sourceUrl()),
+                        SensitiveDataMasker.mask(item.filePath()),
+                        SensitiveDataMasker.mask(item.lineRange()),
+                        SensitiveDataMasker.mask(item.rawRef()),
+                        SensitiveDataMasker.mask(item.matchReason()),
+                        sanitizedMetadata(item.metadata())
+                ))
+                .toList();
+    }
+
+    private Map<String, Object> sanitizedMetadata(Map<String, Object> metadata) {
+        if (metadata == null || metadata.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> sanitized = new LinkedHashMap<>();
+        metadata.forEach((key, value) -> sanitized.put(key, value == null ? null : SensitiveDataMasker.mask(String.valueOf(value))));
+        return sanitized;
     }
 
     private java.util.Optional<String> first(Pattern pattern, String text) {

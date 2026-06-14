@@ -83,22 +83,23 @@ public class IntentClassifier {
                     extractedFacts(node));
         }
 
-        IntentLeafView selected = leafByCode.get(selectedCode);
+        String resolvedSelectedCode = selectedCode;
+        IntentLeafView selected = leafByCode.get(resolvedSelectedCode);
         double confidence = node.path("confidence").asDouble(
                 candidates.stream()
-                        .filter(candidate -> selectedCode.equals(candidate.nodeCode()))
+                        .filter(candidate -> resolvedSelectedCode.equals(candidate.nodeCode()))
                         .findFirst()
                         .map(IntentCandidate::confidence)
                         .orElse(0.0));
-        if (candidates.stream().noneMatch(candidate -> selectedCode.equals(candidate.nodeCode()))) {
+        if (candidates.stream().noneMatch(candidate -> resolvedSelectedCode.equals(candidate.nodeCode()))) {
             candidates = new ArrayList<>(candidates);
-            candidates.add(new IntentCandidate(selectedCode, confidence, list(node, "matchedSignals")));
+            candidates.add(new IntentCandidate(resolvedSelectedCode, confidence, list(node, "matchedSignals")));
             candidates = candidates.stream()
                     .sorted(Comparator.comparingDouble(IntentCandidate::confidence).reversed())
                     .toList();
         }
         return new IntentClassificationResult(
-                selectedCode,
+                resolvedSelectedCode,
                 hasText(text(node, "selectedIntentPath")) ? text(node, "selectedIntentPath") : selected.nodePath(),
                 confidence,
                 candidates,

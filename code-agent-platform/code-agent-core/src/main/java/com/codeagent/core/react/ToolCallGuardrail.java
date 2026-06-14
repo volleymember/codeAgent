@@ -5,7 +5,6 @@ import com.codeagent.core.intent.dto.IntentLeafView;
 import com.codeagent.core.understanding.ProjectContext;
 import com.codeagent.core.understanding.ResolvedTimeRange;
 import com.codeagent.core.understanding.TimeRangeResolver;
-import com.codeagent.mcp.model.ToolCallResult;
 import com.codeagent.mcp.model.ToolDefinition;
 import org.springframework.stereotype.Component;
 
@@ -58,7 +57,7 @@ public class ToolCallGuardrail {
                         "HIGH_COST_TIME_RANGE_TOO_LARGE", completeness, intentScore(definition, context.intentLeaf()), false);
             }
         }
-        if (duplicateSuccessful(definition.name(), input, context.previousToolCalls())) {
+        if (duplicateSuccessful(definition.name(), input, context.successfulToolCallKeys())) {
             return new ToolCallValidation(false, candidate, definition, input,
                     "DUPLICATE_SUCCESSFUL_TOOL_CALL", completeness, intentScore(definition, context.intentLeaf()), true);
         }
@@ -133,15 +132,12 @@ public class ToolCallGuardrail {
         return allowedByIntent(definition, intent) ? 1.0 : 0.0;
     }
 
-    private boolean duplicateSuccessful(String toolName, Map<String, Object> input, List<ToolCallResult> previous) {
-        if (previous == null || previous.isEmpty()) {
+    private boolean duplicateSuccessful(String toolName, Map<String, Object> input, List<String> successfulKeys) {
+        if (successfulKeys == null || successfulKeys.isEmpty()) {
             return false;
         }
         String key = key(toolName, input);
-        return previous.stream()
-                .filter(result -> "SUCCESS".equals(result.status()))
-                .map(result -> result.rawRef() == null ? result.toolName() : result.toolName() + "|" + result.rawRef())
-                .anyMatch(value -> Objects.equals(value, key) || value.startsWith(toolName + "|"));
+        return successfulKeys.stream().anyMatch(value -> Objects.equals(value, key));
     }
 
     public String key(String toolName, Map<String, Object> input) {
